@@ -17,7 +17,8 @@ const listSystem = u.system(() => {
   // note: recalculating the items array each time itemHeight changes is sub-optimal
   // in this simplistic scenario, this is a bit of an overkill. but it illustrates the point of pipe and combine latest.
   const itemsStateEmitter = u.pipe(
-    u.combineLatest(totalCount, itemHeight, scrollTop),
+    // it's a good idea to distinct until changed on scalar values to reduce rendering cycles.
+    u.combineLatest(u.duc(totalCount), u.duc(itemHeight), u.duc(scrollTop)),
     u.map(([totalCount, itemHeight, scrollTop]) => {
       const firstItemIndex = Math.floor(scrollTop / itemHeight);
       const lastItemIndex = Math.ceil(
@@ -39,6 +40,15 @@ const listSystem = u.system(() => {
         paddingBottom,
         items,
       };
+    }),
+    // this is a very naive optimization, that prevents the component from re-rendering with each scroll event.
+    // TODO: the map operation can be expensive. In the real list, it is optimized as well.
+    u.distinctUntilChanged((current, next) => {
+      return (
+        current &&
+        current.paddingTop === next.paddingTop &&
+        current.paddingBottom === next.paddingBottom
+      );
     })
   );
 
@@ -90,12 +100,11 @@ function useScrollTop(callback: (value: number) => void) {
 const ListRoot = () => {
   const itemsState = useEmitterValue("itemsState");
   const scrollTopPublisher = usePublisher("scrollTop");
-  const scrollTop = useEmitterValue("scrollTop");
-  // this is just for example purposes.
   const ref = useScrollTop(scrollTopPublisher);
+  console.log("rendering ");
+
   return (
     <div>
-      scrollTop: {scrollTop}
       <div
         ref={ref}
         style={{
