@@ -7,15 +7,45 @@ import { systemToComponent } from "@virtuoso.dev/react-urx";
 // below is a system that declares a single stateful stream.
 const listSystem = u.system(() => {
   const totalCount = u.statefulStream(0);
-  return { totalCount };
+  const itemHeight = u.statefulStream(20);
+
+  // let's calculate the items based on the two inputs from above.
+  // note: recalculating the items array each time itemHeight changes is sub-optimal
+  // in this simplistic scenario, this is a bit of an overkill. but it illustrates the point of pipe and combine latest.
+  const itemsEmitter = u.pipe(
+    u.combineLatest(totalCount, itemHeight),
+    u.map(([totalCount, itemHeight]) => {
+      return Array.from({ length: totalCount }, (_, index) => {
+        return { label: `Item ${index}`, height: itemHeight };
+      });
+    })
+  );
+
+  // we are want items to be accessed with `useEmitterValue` - so we will wrap the emitter
+  // to a stateful stream with default value.
+  // technically, combining two stateful streams will result in a stateful emitter, but this is hard to be described in typescript :(.
+  const items = u.statefulStreamFromEmitter(itemsEmitter, []);
+
+  return {
+    // inputs
+    totalCount,
+    itemHeight,
+
+    // output
+    items,
+  };
 });
 
 // this will be our React component root.
 const ListRoot = () => {
-  // access the value in the `totalCount` stream.
-  // the component is re-rendered each time totalCount changes.
-  const totalCount = useEmitterValue("totalCount");
-  return <div>totalCount: {totalCount}</div>;
+  const items = useEmitterValue("items");
+  return (
+    <div>
+      {items.map((item) => (
+        <div style={{ height: item.height }}>{item.label}</div>
+      ))}
+    </div>
+  );
 };
 
 // systemToComponent constructs the actual, public component from the system and the component root.
@@ -25,6 +55,7 @@ const { Component: List, useEmitterValue } = systemToComponent(
   {
     required: {
       totalCount: "totalCount",
+      itemHeight: "itemHeight",
     },
   },
   ListRoot
@@ -32,6 +63,7 @@ const { Component: List, useEmitterValue } = systemToComponent(
 
 function App() {
   const [totalCount, setTotalCount] = useState(10);
+  const [itemHeight, setItemHeight] = useState(20);
   return (
     <div className="App">
       <div>
@@ -44,7 +76,17 @@ function App() {
           />
         </label>
       </div>
-      <List totalCount={totalCount} />
+      <div>
+        <label>
+          item height:{" "}
+          <input
+            type="number"
+            value={itemHeight}
+            onChange={(e) => setItemHeight(parseInt(e.target.value))}
+          />
+        </label>
+      </div>
+      <List itemHeight={itemHeight} totalCount={totalCount} />
     </div>
   );
 }
