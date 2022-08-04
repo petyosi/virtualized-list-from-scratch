@@ -3,6 +3,9 @@ import "./App.css";
 import * as u from "@virtuoso.dev/urx";
 import { systemToComponent } from "@virtuoso.dev/react-urx";
 
+// this should be pulled from DOM, but hard to do in 30m.
+const VIEWPORT_HEIGHT = 300;
+
 // URX starts state-management first - you construct the system(s)...
 // below is a system that declares a single stateful stream.
 const listSystem = u.system(() => {
@@ -13,19 +16,40 @@ const listSystem = u.system(() => {
   // let's calculate the items based on the two inputs from above.
   // note: recalculating the items array each time itemHeight changes is sub-optimal
   // in this simplistic scenario, this is a bit of an overkill. but it illustrates the point of pipe and combine latest.
-  const itemsEmitter = u.pipe(
-    u.combineLatest(totalCount, itemHeight),
-    u.map(([totalCount, itemHeight]) => {
-      return Array.from({ length: totalCount }, (_, index) => {
-        return { label: `Item ${index}`, height: itemHeight };
+  const itemsStateEmitter = u.pipe(
+    u.combineLatest(totalCount, itemHeight, scrollTop),
+    u.map(([totalCount, itemHeight, scrollTop]) => {
+      const firstItemIndex = Math.floor(scrollTop / itemHeight);
+      const lastItemIndex = Math.ceil(
+        (scrollTop + VIEWPORT_HEIGHT) / itemHeight
+      );
+
+      const itemCount = lastItemIndex - firstItemIndex;
+      const totalHeight = totalCount * itemHeight;
+      const itemsHeight = itemCount * itemHeight;
+      const paddingTop = firstItemIndex * itemHeight;
+      const paddingBottom = totalHeight - itemsHeight - paddingTop;
+
+      const items = Array.from({ length: itemCount }, (_, index) => {
+        return { label: `Item ${index + firstItemIndex}`, height: itemHeight };
       });
+
+      return {
+        paddingTop,
+        paddingBottom,
+        items,
+      };
     })
   );
 
   // we are want items to be accessed with `useEmitterValue` - so we will wrap the emitter
   // to a stateful stream with default value.
   // technically, combining two stateful streams will result in a stateful emitter, but this is hard to be described in typescript :(.
-  const items = u.statefulStreamFromEmitter(itemsEmitter, []);
+  const itemsState = u.statefulStreamFromEmitter(itemsStateEmitter, {
+    paddingTop: 0,
+    paddingBottom: 0,
+    items: [],
+  });
 
   return {
     // inputs
@@ -37,7 +61,7 @@ const listSystem = u.system(() => {
     scrollTop,
 
     // output
-    items,
+    itemsState,
   };
 });
 
@@ -64,7 +88,7 @@ function useScrollTop(callback: (value: number) => void) {
 
 // this will be our React component root.
 const ListRoot = () => {
-  const items = useEmitterValue("items");
+  const itemsState = useEmitterValue("itemsState");
   const scrollTopPublisher = usePublisher("scrollTop");
   const scrollTop = useEmitterValue("scrollTop");
   // this is just for example purposes.
@@ -75,15 +99,22 @@ const ListRoot = () => {
       <div
         ref={ref}
         style={{
-          height: 300,
+          height: VIEWPORT_HEIGHT,
           width: 500,
           overflowY: "auto",
           border: "1px solid black",
         }}
       >
-        {items.map((item) => (
-          <div style={{ height: item.height }}>{item.label}</div>
-        ))}
+        <div
+          style={{
+            paddingTop: itemsState.paddingTop,
+            paddingBottom: itemsState.paddingBottom,
+          }}
+        >
+          {itemsState.items.map((item) => (
+            <div style={{ height: item.height }}>{item.label}</div>
+          ))}
+        </div>
       </div>
     </div>
   );
